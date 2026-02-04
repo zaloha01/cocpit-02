@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { LocalStorageProvider } from '@/src/storage/LocalProvider';
 import { createAppStateStore } from '@/src/appstate/AppStateStore';
+import { createDefaultState } from '@/src/storage/schema';
 import {
   addDebtItem,
   updateDebtItem,
@@ -30,7 +31,7 @@ export default function DebtsPage() {
     const storage = new LocalStorageProvider();
     return createAppStateStore(storage);
   });
-  const [state, setState] = useState<AppState | null>(null);
+  const [state, setState] = useState<AppState>(createDefaultState());
   const [isInitialized, setIsInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState<'i_owe' | 'owed_to_me'>('i_owe');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -98,7 +99,8 @@ export default function DebtsPage() {
     };
   }, [store]);
 
-  if (!isInitialized || !state) {
+  // Render with default state if not yet initialized
+  if (!isInitialized) {
     return <div className="p-4">Načítání...</div>;
   }
 

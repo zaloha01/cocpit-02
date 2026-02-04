@@ -27,7 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Pohyblivé náklady', href: '/pohyblive-vydaje' },
   { label: 'Projekty (deník)', href: '/projekty' },
   { label: 'Majetek', href: '/majetek' },
-  { label: 'Cíle & pasiva', href: '/cile' },
+  { label: 'Cíle & pasiva', href: '/cile-a-pasiva' },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

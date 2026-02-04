@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { LocalStorageProvider } from '@/src/storage/LocalProvider';
 import { createAppStateStore } from '@/src/appstate/AppStateStore';
+import { createDefaultState } from '@/src/storage/schema';
 import { deleteWalletCheckpoint, addWalletCheckpoint } from '@/src/appstate/actions';
 import { computeImpliedVariableSpendBetween } from '@/src/domain';
 import type { AppState } from '@/src/storage/schema';
@@ -24,7 +25,7 @@ export default function WalletPage() {
     const storage = new LocalStorageProvider();
     return createAppStateStore(storage);
   });
-  const [state, setState] = useState<AppState | null>(null);
+  const [state, setState] = useState<AppState>(createDefaultState());
   const [isInitialized, setIsInitialized] = useState(false);
   const [walletCheckpointForm, setWalletCheckpointForm] = useState({
     amountActual: '',
@@ -49,7 +50,8 @@ export default function WalletPage() {
     };
   }, [store]);
 
-  if (!isInitialized || !state) {
+  // Render with default state if not yet initialized
+  if (!isInitialized) {
     return <div className="p-4">Načítání...</div>;
   }
 

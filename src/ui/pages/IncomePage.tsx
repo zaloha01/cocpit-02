@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { LocalStorageProvider } from '@/src/storage/LocalProvider';
 import { createAppStateStore } from '@/src/appstate/AppStateStore';
+import { createDefaultState } from '@/src/storage/schema';
 import {
   addIncomeEntry,
   updateIncomeEntry,
@@ -34,7 +35,7 @@ export default function IncomePage() {
     const storage = new LocalStorageProvider();
     return createAppStateStore(storage);
   });
-  const [state, setState] = useState<AppState | null>(null);
+  const [state, setState] = useState<AppState>(createDefaultState());
   const [isInitialized, setIsInitialized] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<MonthKey>(getCurrentMonthKey());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -120,7 +121,8 @@ export default function IncomePage() {
     }
   };
 
-  if (!isInitialized || !state) {
+  // Render with default state if not yet initialized
+  if (!isInitialized) {
     return (
       <div className="container mx-auto p-4">
         <h1 className="text-3xl font-bold mb-4">Příjmy</h1>

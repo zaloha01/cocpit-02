@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { LocalStorageProvider } from '@/src/storage/LocalProvider';
 import { createAppStateStore } from '@/src/appstate/AppStateStore';
+import { createDefaultState } from '@/src/storage/schema';
 import {
   addVariableExpenseEntry,
   updateVariableExpenseEntry,
@@ -32,7 +33,7 @@ export default function VariableExpensePage() {
     const storage = new LocalStorageProvider();
     return createAppStateStore(storage);
   });
-  const [state, setState] = useState<AppState | null>(null);
+  const [state, setState] = useState<AppState>(createDefaultState());
   const [isInitialized, setIsInitialized] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<MonthKey>(getCurrentMonthKey());
   const [selectedScope, setSelectedScope] = useState<Scope>('rodina');
@@ -113,7 +114,8 @@ export default function VariableExpensePage() {
     }
   };
 
-  if (!isInitialized || !state) {
+  // Render with default state if not yet initialized
+  if (!isInitialized) {
     return (
       <div className="container mx-auto p-4">
         <h1 className="text-3xl font-bold mb-4">Pohyblivé výdaje</h1>

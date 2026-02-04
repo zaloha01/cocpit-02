@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { LocalStorageProvider } from '@/src/storage/LocalProvider';
 import { createAppStateStore } from '@/src/appstate/AppStateStore';
+import { createDefaultState } from '@/src/storage/schema';
 import {
   markMonthlyLedgerEntryPaid,
   markMonthlyLedgerEntryPartial,
@@ -31,6 +32,7 @@ import {
   selectPaidThisMonthOutgoing,
 } from '@/src/domain';
 import { useScope } from '@/src/ui/contexts/ScopeContext';
+import { restoreFromLastBackup } from '@/src/storage/backup';
 import type { AppState } from '@/src/storage/schema';
 import type { MonthlyContext, MonthKey, MonthlyLedgerEntry, WalletCheckpoint } from '@/src/domain';
 
@@ -74,7 +76,8 @@ export default function DashboardPage() {
     const storage = new LocalStorageProvider();
     return createAppStateStore(storage);
   });
-  const [state, setState] = useState<AppState | null>(null);
+  // Initialize with default state to prevent blocking render
+  const [state, setState] = useState<AppState>(createDefaultState());
   const [context, setContext] = useState<MonthlyContext | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<MonthKey>(getCurrentMonthKey());
@@ -135,11 +138,9 @@ export default function DashboardPage() {
   }, [store]);
 
   useEffect(() => {
-    if (state) {
-      // Call domain selector to get monthly context for selected month with scope filter
-      const monthlyContext = getMonthlyContext(state, selectedMonth, [scope]);
-      setContext(monthlyContext);
-    }
+    // Always compute context, even with default state
+    const monthlyContext = getMonthlyContext(state, selectedMonth, [scope]);
+    setContext(monthlyContext);
   }, [state, selectedMonth, scope]);
 
   const handleEdit = (entry: MonthlyLedgerEntry) => {
@@ -240,23 +241,45 @@ export default function DashboardPage() {
     setEditSavedForm({ savedAmount: 0 });
   };
 
+  const handleRestoreBackup = () => {
+    const restoredState = restoreFromLastBackup();
+    if (restoredState) {
+      // Replace current state with restored state
+      store.setState(restoredState);
+      // Reload page to ensure everything is refreshed
+      window.location.reload();
+    } else {
+      alert('Nepodařilo se najít zálohu v localStorage.');
+    }
+  };
+
   // Calculate reserve totals for catchup entries
-  const catchupEntries = context?.obligations.filter((e) => isCatchupEntry(e, state || {} as AppState)) || [];
+  const catchupEntries = context?.obligations.filter((e) => isCatchupEntry(e, state)) || [];
   const reserveTargetTotal = catchupEntries.reduce((sum, e) => sum + (e.dueAmount || 0), 0);
   const reserveSavedTotal = catchupEntries.reduce((sum, e) => sum + (e.savedAmount || 0), 0);
 
-  if (!isInitialized || !context || !state) {
+  // Render with default state if context not yet computed
+  if (!context) {
     return (
       <div className="container mx-auto p-4">
         <h1 className="text-3xl font-bold mb-4">Dashboard</h1>
-        <p className="text-gray-600">Loading...</p>
+        <p className="text-gray-600">Načítání...</p>
       </div>
     );
   }
 
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <h1 className="text-3xl font-bold mb-4">Dashboard</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <button
+          onClick={handleRestoreBackup}
+          className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors text-sm"
+          title="Obnovit poslední zálohu z localStorage"
+        >
+          Obnovit poslední zálohu
+        </button>
+      </div>
 
       {/* Month selector */}
       <section className="p-4 border rounded">

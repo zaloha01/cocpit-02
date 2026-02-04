@@ -182,3 +182,59 @@ function mergeArrays<T extends { id?: string }>(current: T[], incoming: T[]): T[
   // Otherwise, just concatenate
   return [...current, ...incoming];
 }
+
+/**
+ * Restore from last backup in localStorage
+ * Looks for backup in localStorage key 'financeos.backup' or uses current state as backup
+ */
+export function restoreFromLastBackup(currentState?: AppState): AppState | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    // Try to find backup in localStorage
+    const backupKey = 'financeos.backup';
+    const backupData = localStorage.getItem(backupKey);
+    
+    if (backupData) {
+      try {
+        const parsed = JSON.parse(backupData);
+        if (parsed && parsed.data && typeof parsed.data === 'object') {
+          // Validate it looks like AppState
+          if (parsed.data.schemaVersion && parsed.data.meta) {
+            // If currentState provided, use applyImport; otherwise return parsed data directly
+            if (currentState) {
+              return applyImport(currentState, parsed.data, 'replace');
+            }
+            return parsed.data as AppState;
+          }
+        }
+      } catch (parseError) {
+        console.error('Failed to parse backup:', parseError);
+      }
+    }
+
+    // If no backup found, try to use current state as backup source
+    // (in case current state is actually the "last good" state)
+    const currentStateKey = 'financeos.appstate.v1';
+    const currentStateData = localStorage.getItem(currentStateKey);
+    
+    if (currentStateData) {
+      try {
+        const parsed = JSON.parse(currentStateData);
+        if (parsed && parsed.schemaVersion && parsed.meta) {
+          // This is the current state - return it as-is (no change needed)
+          return parsed as AppState;
+        }
+      } catch (parseError) {
+        console.error('Failed to parse current state as backup:', parseError);
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Failed to restore from backup:', error);
+    return null;
+  }
+}
