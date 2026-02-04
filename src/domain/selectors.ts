@@ -17,8 +17,27 @@ import type {
   IncomeEntry,
   GoalState,
   DebtState,
+  DebtItem,
+  DebtPayment,
+  WalletCheckpoint,
 } from './models';
 import { sum, clampMin, parseMonthKey, formatMonthKey } from './calc';
+
+/**
+ * Helper to filter items by scope
+ * If item.scope is missing, it passes through only when scope is undefined (for backward compatibility)
+ */
+export function selectByScope<T extends { scope?: Scope | string }>(items: T[], scope?: Scope | string): T[] {
+  if (!Array.isArray(items)) return [];
+  if (scope === undefined) return items; // No filter
+  return items.filter((item) => {
+    if (!item.scope) {
+      // Item without scope: pass through only if scope is undefined
+      return scope === undefined;
+    }
+    return item.scope === scope;
+  });
+}
 
 /**
  * Get income planned total for a month (informational only)
@@ -336,48 +355,17 @@ export function buildMonthlyObligationsFromRecurring(
 
 /**
  * Build monthly obligations from debt payment plans
+ * Note: New DebtItem model doesn't have plans, so this returns empty array
+ * Debts are managed separately via debtPayments
  */
 export function buildMonthlyObligationsFromDebtPlans(
   state: AppState,
-  month: MonthKey
+  month: MonthKey,
+  scopeFilter?: Scope[]
 ): MonthlyLedgerEntry[] {
-  const debts = (state.debts || {}) as Record<string, DebtState>;
-  const entries: MonthlyLedgerEntry[] = [];
-
-  for (const debt of Object.values(debts)) {
-    if (!debt?.active || !debt?.plan) continue;
-    if (debt.direction !== 'iOwe') continue; // Only debts I owe create obligations
-
-    const plan = debt.plan || [];
-    const planEntry = plan.find((p) => p.month === month);
-    if (!planEntry) continue;
-
-    // Check if there's already a ledger entry for this debt in this month
-    // NOTE: monthlyLedger entries are instances that can be modified in dashboard
-    // without affecting the source debt plan (see ARCHITECTURE.md)
-    const existingEntry = (state.monthlyLedger || []).find(
-      (entry) => entry.sourceId === debt.id && entry.month === month && entry.sourceType === 'debt'
-    );
-
-    // Ensure numeric safety
-    const safeNumber = (v: unknown): number => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : 0;
-    };
-
-    entries.push({
-      id: existingEntry?.id || `debt_${debt.id}_${month}`,
-      sourceId: debt.id,
-      sourceType: 'debt',
-      month,
-      dueAmount: safeNumber(planEntry.amount),
-      paidAmount: safeNumber(existingEntry?.paidAmount),
-      paidBy: existingEntry?.paidBy,
-      paidByName: existingEntry?.paidByName,
-    });
-  }
-
-  return entries;
+  // New DebtItem model doesn't use plans, debts are tracked via payments
+  // Return empty array - debts are managed separately
+  return [];
 }
 
 /**
@@ -508,4 +496,162 @@ export function computeKarelDeficit(
   const wallet = safeNumber(walletBalance);
   const deficit = Math.max(0, mustPay - nonKarelIncome - wallet);
   return Number.isFinite(deficit) ? deficit : 0;
+}
+
+/**
+ * Calculate debt status (paid total, remaining, status)
+ */
+export function calculateDebtStatus(
+  debt: DebtItem,
+  payments: DebtPayment[]
+): { paidTotal: number; remaining: number; status: 'unpaid' | 'partial' | 'paid' } {
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const principal = safeNumber(debt.principal);
+  const outstanding = safeNumber(debt.outstanding);
+  
+  // Sum payments for this debt
+  const debtPayments = payments.filter((p) => p.debtId === debt.id);
+  const paidTotal = sum(debtPayments.map((p) => safeNumber(p.amount)));
+  
+  // Remaining is the outstanding amount (which should be principal - paidTotal)
+  const remaining = Math.max(0, outstanding);
+  
+  let status: 'unpaid' | 'partial' | 'paid';
+  if (paidTotal === 0) {
+    status = 'unpaid';
+  } else if (remaining <= 0 || paidTotal >= principal) {
+    status = 'paid';
+  } else {
+    status = 'partial';
+  }
+
+  return { paidTotal, remaining, status };
+}
+
+/**
+ * Get total outstanding debts (i_owe) for a scope
+ */
+export function getDebtsOutstandingTotal(state: AppState, scope?: Scope): number {
+  const debts = (state.debts || []) as DebtItem[];
+  if (!Array.isArray(debts)) return 0;
+
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // Filter by scope if provided
+  const filteredDebts = scope ? selectByScope(debts, scope) : debts;
+  
+  // Sum outstanding for i_owe debts
+  return sum(
+    filteredDebts
+      .filter((debt) => debt.direction === 'i_owe')
+      .map((debt) => safeNumber(debt.outstanding))
+  );
+}
+
+/**
+ * Get total outstanding receivables (owed_to_me) for a scope
+ */
+export function getReceivablesOutstandingTotal(state: AppState, scope?: Scope): number {
+  const debts = (state.debts || []) as DebtItem[];
+  if (!Array.isArray(debts)) return 0;
+
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // Filter by scope if provided
+  const filteredDebts = scope ? selectByScope(debts, scope) : debts;
+  
+  // Sum outstanding for owed_to_me debts
+  return sum(
+    filteredDebts
+      .filter((debt) => debt.direction === 'owed_to_me')
+      .map((debt) => safeNumber(debt.outstanding))
+  );
+}
+
+/**
+ * Get total uncertain receivables (owed_to_me with confidence < 100) for a scope
+ */
+export function getUncertainReceivablesTotal(state: AppState, scope?: Scope): number {
+  const debts = (state.debts || []) as DebtItem[];
+  if (!Array.isArray(debts)) return 0;
+
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // Filter by scope if provided
+  const filteredDebts = scope ? selectByScope(debts, scope) : debts;
+  
+  // Sum outstanding for uncertain receivables
+  return sum(
+    filteredDebts
+      .filter((debt) => debt.direction === 'owed_to_me' && debt.confidence < 100)
+      .map((debt) => safeNumber(debt.outstanding))
+  );
+}
+
+
+/**
+ * Compute implied variable spend between two wallet checkpoints
+ * Calculates the difference in wallet balance and subtracts known income/expenses
+ * to determine implied variable spending
+ */
+export function computeImpliedVariableSpendBetween(
+  state: AppState,
+  previousCheckpoint: WalletCheckpoint,
+  currentCheckpoint: WalletCheckpoint
+): number {
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const previousBalance = safeNumber(previousCheckpoint.amountActual);
+  const currentBalance = safeNumber(currentCheckpoint.amountActual);
+  const balanceChange = currentBalance - previousBalance;
+
+  // Extract month keys from checkpoint dates
+  const previousDateParts = previousCheckpoint.date.split('-');
+  const currentDateParts = currentCheckpoint.date.split('-');
+  
+  if (previousDateParts.length < 2 || currentDateParts.length < 2) {
+    return 0; // Invalid date format
+  }
+
+  const previousMonth = `${previousDateParts[0]}-${previousDateParts[1]}` as MonthKey;
+  const currentMonth = `${currentDateParts[0]}-${currentDateParts[1]}` as MonthKey;
+
+  // Get income received between checkpoints
+  const previousIncome = getEffectiveIncome(state, previousMonth);
+  const currentIncome = getEffectiveIncome(state, currentMonth);
+  const totalIncome = previousIncome.totalReceived + currentIncome.totalReceived;
+
+  // Get paid amounts (obligations + goals) between checkpoints
+  const previousObligations = buildMonthlyObligationsFromRecurring(state, previousMonth);
+  const currentObligations = buildMonthlyObligationsFromRecurring(state, currentMonth);
+  const allObligations = [...previousObligations, ...currentObligations];
+  const previousGoals = buildMonthlyGoalPayments(state, previousMonth);
+  const currentGoals = buildMonthlyGoalPayments(state, currentMonth);
+  const totalPaid = computePaidTotal(allObligations, previousGoals + currentGoals);
+
+  // Implied variable spend = balance change - income + paid expenses
+  // If balance decreased, it means money was spent (negative change)
+  // If income came in, it increases balance (positive)
+  // If expenses were paid, it decreases balance (negative)
+  // So: impliedSpend = -balanceChange + income - paidExpenses
+  // Or: impliedSpend = income - paidExpenses - balanceChange
+  const impliedSpend = totalIncome - totalPaid - balanceChange;
+
+  return Number.isFinite(impliedSpend) ? impliedSpend : 0;
 }

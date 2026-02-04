@@ -5,12 +5,12 @@
  * Used for versioning, migration, and data integrity.
  */
 
-import type { RecurringRule, MonthlyLedgerEntry, IncomeEntry, VariableExpenseEntry } from '../domain/models';
+import type { RecurringRule, MonthlyLedgerEntry, IncomeEntry, VariableExpenseEntry, WalletCheckpoint, DebtItem, DebtPayment } from '../domain/models';
 
 /**
  * Current schema version
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 
 /**
  * Application scope types
@@ -45,6 +45,9 @@ export type AppState = {
   monthlyLedger: MonthlyLedgerEntry[];
   incomeEntries: IncomeEntry[]; // New income structure
   variableExpenseLedger: VariableExpenseEntry[]; // Variable spending entries
+  walletCheckpoints: WalletCheckpoint[]; // Weekly wallet reconciliation checkpoints
+  debts: DebtItem[]; // Debt items (komu dlužím / kdo dluží mně)
+  debtPayments: DebtPayment[]; // Debt payments (splátky)
   incomes: {
     // DEPRECATED: kept for migration
     karinAvg: number;
@@ -54,7 +57,6 @@ export type AppState = {
     borrowedIncome: Array<{ id: string; month: string; amount: number; from?: string; note?: string }>;
   };
   goals: any; // placeholder
-  debts: any; // placeholder
   expected: any; // placeholder
   categories: {
     main: string[];
@@ -106,6 +108,9 @@ export function createDefaultState(): AppState {
     monthlyLedger: [],
     incomeEntries: [],
     variableExpenseLedger: [],
+    walletCheckpoints: [],
+    debts: [],
+    debtPayments: [],
     incomes: {
       karinAvg: 53000,
       karinActual: {},
@@ -114,7 +119,6 @@ export function createDefaultState(): AppState {
       borrowedIncome: [],
     },
     goals: {},
-    debts: {},
     expected: {},
     categories: {
       main: [
@@ -231,6 +235,31 @@ export function migrateSchema(data: unknown, fromVersion: number, toVersion: num
     return state as AppState;
   }
   
+  // Migrate from version 5 to 6: add walletCheckpoints
+  if (fromVersion === 5 && toVersion === 6) {
+    const state = data as any;
+    if (!state.walletCheckpoints) {
+      state.walletCheckpoints = [];
+    }
+    state.schemaVersion = 6;
+    return state as AppState;
+  }
+  
+  // Migrate from version 6 to 7: add debts and debtPayments
+  if (fromVersion === 6 && toVersion === 7) {
+    const state = data as any;
+    // Convert debts to array if it exists as object (from old debts: any)
+    if (!state.debts || !Array.isArray(state.debts)) {
+      state.debts = [];
+    }
+    // Convert debtPayments to array if it exists as object
+    if (!state.debtPayments || !Array.isArray(state.debtPayments)) {
+      state.debtPayments = [];
+    }
+    state.schemaVersion = 7;
+    return state as AppState;
+  }
+  
   // Chain migrations if needed
   if (fromVersion < toVersion) {
     let current = data as any;
@@ -243,6 +272,15 @@ export function migrateSchema(data: unknown, fromVersion: number, toVersion: num
     }
     if (current.schemaVersion === 3 && toVersion >= 4) {
       current = migrateSchema(current, 3, 4);
+    }
+    if (current.schemaVersion === 4 && toVersion >= 5) {
+      current = migrateSchema(current, 4, 5);
+    }
+    if (current.schemaVersion === 5 && toVersion >= 6) {
+      current = migrateSchema(current, 5, 6);
+    }
+    if (current.schemaVersion === 6 && toVersion >= 7) {
+      current = migrateSchema(current, 6, 7);
     }
     return current as AppState;
   }

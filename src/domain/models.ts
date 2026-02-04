@@ -57,6 +57,18 @@ export type MonthlyLedgerEntry = {
   savedAmount?: Money; // amount saved to reserve (for catchup spreadMode)
   paidBy?: 'self' | 'gift' | 'loan';
   paidByName?: string; // name of person who paid (for gift/loan)
+  paidDate?: string; // YYYY-MM-DD, when payment was actually made
+};
+
+/**
+ * Wallet checkpoint (weekly reconciliation)
+ */
+export type WalletCheckpoint = {
+  id: string;
+  date: string; // YYYY-MM-DD (required)
+  amountActual: number; // how much money user physically has now
+  note?: string;
+  createdAt: number; // timestamp
 };
 
 /**
@@ -130,7 +142,36 @@ export type GoalState = {
 };
 
 /**
- * Debt state structure
+ * Debt item (komu dlužím / kdo dluží mně)
+ */
+export type DebtItem = {
+  id: string;
+  direction: 'i_owe' | 'owed_to_me';
+  counterpartyName: string;
+  title: string;
+  principal: number; // original amount
+  outstanding: number; // remaining (auto-updated)
+  startDate?: string; // YYYY-MM-DD
+  dueDate?: string; // YYYY-MM-DD (optional)
+  confidence: 100 | 50; // 100 = certain, 50 = uncertain
+  scope: Scope;
+  note?: string;
+  createdAt: number;
+};
+
+/**
+ * Debt payment (splátka)
+ */
+export type DebtPayment = {
+  id: string;
+  debtId: string;
+  date: string; // YYYY-MM-DD
+  amount: number;
+  note?: string;
+};
+
+/**
+ * Debt state structure (DEPRECATED: kept for backward compatibility)
  * Debts without plan do not create monthly obligations automatically
  */
 export type DebtState = {

@@ -25,11 +25,18 @@ export class LocalStorageProvider implements IStorageProvider {
 
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) {
+      if (!stored || typeof stored !== 'string') {
         return createDefaultState();
       }
 
-      const parsed = JSON.parse(stored);
+      // Safe JSON.parse without reviver
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stored);
+      } catch (parseError) {
+        console.error('Failed to parse stored state:', parseError);
+        return createDefaultState();
+      }
       
       // Validate schema
       if (!validateSchema(parsed)) {
@@ -75,6 +82,23 @@ export class LocalStorageProvider implements IStorageProvider {
       // Normalize variableExpenseLedger to ensure it's always an array
       if (!Array.isArray(normalized.variableExpenseLedger)) {
         normalized.variableExpenseLedger = [];
+      }
+
+      // Normalize walletCheckpoints to ensure it's always an array
+      if (!Array.isArray(normalized.walletCheckpoints)) {
+        normalized.walletCheckpoints = [];
+      }
+
+      // Normalize debts to ensure it's always an array
+      // Handle case where debts might be an object (from old schema)
+      if (!normalized.debts || !Array.isArray(normalized.debts)) {
+        normalized.debts = [];
+      }
+
+      // Normalize debtPayments to ensure it's always an array
+      // Handle case where debtPayments might be an object (from old schema)
+      if (!normalized.debtPayments || !Array.isArray(normalized.debtPayments)) {
+        normalized.debtPayments = [];
       }
 
       // Normalize settings.karinAverageIncome

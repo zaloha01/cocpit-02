@@ -6,6 +6,8 @@
  */
 
 import type { Metadata } from 'next';
+import AppShell from '@/src/ui/components/AppShell';
+import { ScopeProvider } from '@/src/ui/contexts/ScopeContext';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -20,7 +22,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="cs">
-      <body>{children}</body>
+      <body>
+        <ScopeProvider>
+          <AppShell>{children}</AppShell>
+        </ScopeProvider>
+      </body>
     </html>
   );
 }

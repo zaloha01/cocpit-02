@@ -7,7 +7,7 @@
 
 import type { AppStateStore } from './AppStateStore';
 import type { AppState } from '../storage/schema';
-import type { RecurringRule, Scope, IncomeEntry, VariableExpenseEntry } from '../domain/models';
+import type { RecurringRule, Scope, IncomeEntry, VariableExpenseEntry, WalletCheckpoint, DebtItem, DebtPayment } from '../domain/models';
 
 /**
  * Sets the current wallet balance
@@ -812,4 +812,230 @@ export function deleteVariableExpenseEntry(store: AppStateStore, id: string): vo
     ...prev,
     variableExpenseLedger: (prev.variableExpenseLedger || []).filter((entry) => entry.id !== id),
   }));
+}
+
+/**
+ * Add a wallet checkpoint
+ */
+export function addWalletCheckpoint(
+  store: AppStateStore,
+  checkpoint: { date: string; amountActual: number; note?: string }
+): void {
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const newCheckpoint: WalletCheckpoint = {
+    id: `checkpoint_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    date: checkpoint.date, // YYYY-MM-DD
+    amountActual: safeNumber(checkpoint.amountActual),
+    note: checkpoint.note,
+    createdAt: Date.now(),
+  };
+
+  store.setState((prev) => ({
+    ...prev,
+    walletCheckpoints: [...(prev.walletCheckpoints || []), newCheckpoint].sort(
+      (a, b) => a.date.localeCompare(b.date)
+    ), // Sort by date ascending
+  }));
+}
+
+/**
+ * Delete a wallet checkpoint
+ */
+export function deleteWalletCheckpoint(store: AppStateStore, id: string): void {
+  store.setState((prev) => ({
+    ...prev,
+    walletCheckpoints: (prev.walletCheckpoints || []).filter((cp) => cp.id !== id),
+  }));
+}
+
+/**
+ * Add a debt item
+ */
+export function addDebtItem(
+  store: AppStateStore,
+  debt: {
+    direction: 'i_owe' | 'owed_to_me';
+    counterpartyName: string;
+    title: string;
+    principal: number;
+    scope: Scope;
+    confidence?: 100 | 50;
+    startDate?: string;
+    dueDate?: string;
+    note?: string;
+  }
+): void {
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const newDebt: DebtItem = {
+    id: `debt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    direction: debt.direction,
+    counterpartyName: debt.counterpartyName,
+    title: debt.title,
+    principal: safeNumber(debt.principal),
+    outstanding: safeNumber(debt.principal), // Initially equals principal
+    scope: debt.scope,
+    confidence: debt.confidence ?? 100,
+    startDate: debt.startDate,
+    dueDate: debt.dueDate,
+    note: debt.note,
+    createdAt: Date.now(),
+  };
+
+  store.setState((prev) => ({
+    ...prev,
+    debts: [...(prev.debts || []), newDebt],
+  }));
+}
+
+/**
+ * Update a debt item
+ */
+export function updateDebtItem(
+  store: AppStateStore,
+  id: string,
+  updates: Partial<{
+    counterpartyName: string;
+    title: string;
+    principal: number;
+    scope: Scope;
+    confidence: 100 | 50;
+    startDate: string;
+    dueDate: string;
+    note: string;
+  }>
+): void {
+  store.setState((prev) => {
+    const debts = prev.debts || [];
+    const index = debts.findIndex((d) => d.id === id);
+    if (index < 0) return prev;
+
+    const updated = [...debts];
+    const existing = updated[index];
+    const safeNumber = (v: unknown): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    // If principal changed, recalculate outstanding
+    let outstanding = existing.outstanding;
+    if (updates.principal !== undefined) {
+      const newPrincipal = safeNumber(updates.principal);
+      const payments = prev.debtPayments || [];
+      const paymentsForDebt = payments.filter((p) => p.debtId === id);
+      const totalPaid = paymentsForDebt.reduce((sum, p) => sum + safeNumber(p.amount), 0);
+      outstanding = Math.max(0, newPrincipal - totalPaid);
+    }
+
+    updated[index] = {
+      ...existing,
+      ...updates,
+      outstanding,
+    };
+
+    return {
+      ...prev,
+      debts: updated,
+    };
+  });
+}
+
+/**
+ * Delete a debt item (and all its payments)
+ */
+export function deleteDebtItem(store: AppStateStore, id: string): void {
+  store.setState((prev) => ({
+    ...prev,
+    debts: (prev.debts || []).filter((d) => d.id !== id),
+    debtPayments: (prev.debtPayments || []).filter((p) => p.debtId !== id),
+  }));
+}
+
+/**
+ * Add a debt payment
+ */
+export function addDebtPayment(
+  store: AppStateStore,
+  payment: {
+    debtId: string;
+    date: string; // YYYY-MM-DD
+    amount: number;
+    note?: string;
+  }
+): void {
+  const safeNumber = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const newPayment: DebtPayment = {
+    id: `payment_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    debtId: payment.debtId,
+    date: payment.date,
+    amount: safeNumber(payment.amount),
+    note: payment.note,
+  };
+
+  store.setState((prev) => {
+    const payments = [...(prev.debtPayments || []), newPayment];
+    const debts = (prev.debts || []).map((debt) => {
+      if (debt.id !== payment.debtId) return debt;
+      // Recalculate outstanding
+      const paymentsForDebt = payments.filter((p) => p.debtId === debt.id);
+      const totalPaid = paymentsForDebt.reduce((sum, p) => sum + safeNumber(p.amount), 0);
+      const outstanding = Math.max(0, safeNumber(debt.principal) - totalPaid);
+      return {
+        ...debt,
+        outstanding,
+      };
+    });
+
+    return {
+      ...prev,
+      debts,
+      debtPayments: payments,
+    };
+  });
+}
+
+/**
+ * Delete a debt payment
+ */
+export function deleteDebtPayment(store: AppStateStore, id: string): void {
+  store.setState((prev) => {
+    const payment = (prev.debtPayments || []).find((p) => p.id === id);
+    if (!payment) return prev;
+
+    const debtId = payment.debtId;
+    const payments = (prev.debtPayments || []).filter((p) => p.id !== id);
+
+    // Recalculate outstanding for the debt
+    const debts = (prev.debts || []).map((debt) => {
+      if (debt.id !== debtId) return debt;
+      const safeNumber = (v: unknown): number => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const paymentsForDebt = payments.filter((p) => p.debtId === debt.id);
+      const totalPaid = paymentsForDebt.reduce((sum, p) => sum + safeNumber(p.amount), 0);
+      const outstanding = Math.max(0, safeNumber(debt.principal) - totalPaid);
+      return {
+        ...debt,
+        outstanding,
+      };
+    });
+
+    return {
+      ...prev,
+      debts,
+      debtPayments: payments,
+    };
+  });
 }

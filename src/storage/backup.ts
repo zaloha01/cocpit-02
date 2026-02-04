@@ -135,8 +135,16 @@ export function applyImport(
       current.variableExpenseLedger || [],
       incoming.variableExpenseLedger || []
     ),
+    walletCheckpoints: mergeArrays(
+      current.walletCheckpoints || [],
+      incoming.walletCheckpoints || []
+    ),
+    debts: mergeArrays(current.debts || [], incoming.debts || []),
+    debtPayments: mergeArrays(current.debtPayments || [], incoming.debtPayments || []),
     categories: {
-      main: mergeArrays(current.categories.main, incoming.categories.main),
+      main: Array.isArray(incoming.categories?.main) 
+        ? [...new Set([...(current.categories?.main || []), ...incoming.categories.main])]
+        : (current.categories?.main || []),
       sub: {
         ...current.categories.sub,
         ...incoming.categories.sub,
@@ -151,7 +159,6 @@ export function applyImport(
       borrowedIncome: [...(current.incomes?.borrowedIncome || []), ...(incoming.incomes?.borrowedIncome || [])],
     },
     goals: { ...current.goals, ...incoming.goals },
-    debts: { ...current.debts, ...incoming.debts },
     expected: { ...current.expected, ...incoming.expected },
   };
 
